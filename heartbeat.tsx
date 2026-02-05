@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  type ChangeEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 
 const MIN_BPM = 30
 const MAX_BPM = 220
@@ -35,11 +43,11 @@ const AUDIO = {
   S2_GAIN: 0.55,
 
   MASTER_GAIN: 0.7,
-}
+} as const
 
 // Dan Abramov's useInterval pattern - allows dynamic interval timing without gaps
-function useInterval(callback, delay) {
-  const savedCallback = useRef()
+function useInterval(callback: () => void, delay: number | null): void {
+  const savedCallback = useRef<() => void>(callback)
 
   useEffect(() => {
     savedCallback.current = callback
@@ -53,7 +61,7 @@ function useInterval(callback, delay) {
   }, [delay])
 }
 
-function createHeartbeatSound(audioCtx, time) {
+function createHeartbeatSound(audioCtx: AudioContext, time: number): void {
   const master = audioCtx.createGain()
   master.gain.setValueAtTime(AUDIO.MASTER_GAIN, time)
   master.connect(audioCtx.destination)
@@ -131,7 +139,14 @@ function createHeartbeatSound(audioCtx, time) {
   o2.stop(time + AUDIO.S2_DELAY + AUDIO.S2_DURATION)
 }
 
-function HeartSVG({ scale, glow, isPlaying, beat }) {
+interface HeartSVGProps {
+  scale: number
+  glow: number
+  isPlaying: boolean
+  beat: number
+}
+
+function HeartSVG({ scale, glow, isPlaying, beat }: HeartSVGProps) {
   return (
     <div
       style={{
@@ -184,7 +199,7 @@ function HeartSVG({ scale, glow, isPlaying, beat }) {
   )
 }
 
-function getEKGY(x, offset, bw, mid) {
+function getEKGY(x: number, offset: number, bw: number, mid: number): number {
   const t = ((x + offset) % bw) / bw
   if (t > 0.1 && t < 0.18)
     return mid - Math.sin(((t - 0.1) / 0.08) * Math.PI) * 6
@@ -197,9 +212,14 @@ function getEKGY(x, offset, bw, mid) {
   return mid
 }
 
-function EKG({ bpm, isPlaying }) {
-  const ref = useRef(null)
-  const anim = useRef(null)
+interface EKGProps {
+  bpm: number
+  isPlaying: boolean
+}
+
+function EKG({ bpm, isPlaying }: EKGProps) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  const anim = useRef<number | null>(null)
   const off = useRef(0)
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
 
@@ -210,13 +230,16 @@ function EKG({ bpm, isPlaying }) {
 
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0]
-      if (entry.contentBoxSize) {
-        const { inlineSize, blockSize } = entry.contentBoxSize[0]
-        setDimensions({ width: inlineSize, height: blockSize })
+      if (entry?.contentBoxSize) {
+        const size = entry.contentBoxSize[0]
+        if (size) {
+          setDimensions({ width: size.inlineSize, height: size.blockSize })
+        }
       }
     })
 
-    observer.observe(canvas.parentElement)
+    const parent = canvas.parentElement
+    if (parent) observer.observe(parent)
     return () => observer.disconnect()
   }, [])
 
@@ -290,7 +313,12 @@ function EKG({ bpm, isPlaying }) {
   )
 }
 
-function getBpmZone(bpm) {
+interface BpmZone {
+  label: string
+  color: string
+}
+
+function getBpmZone(bpm: number): BpmZone {
   if (bpm < 60) return { label: 'Bradycardia', color: '#5b9bd5' }
   if (bpm <= 100) return { label: 'Resting', color: '#6abf69' }
   if (bpm <= 140) return { label: 'Moderate', color: '#d4a843' }
@@ -304,7 +332,14 @@ const BPM_PRESETS = [
   { label: 'Walk', bpm: 110 },
   { label: 'Run', bpm: 155 },
   { label: 'Sprint', bpm: 190 },
-]
+] as const
+
+// Extend Window for Safari's prefixed AudioContext
+declare global {
+  interface Window {
+    webkitAudioContext?: typeof AudioContext
+  }
+}
 
 export default function App() {
   const [bpm, setBpm] = useState(72)
@@ -312,8 +347,8 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [beat, setBeat] = useState(0)
   const [showInfo, setShowInfo] = useState(false)
-  const audioCtx = useRef(null)
-  const overlayRef = useRef(null)
+  const audioCtx = useRef<AudioContext | null>(null)
+  const overlayRef = useRef<HTMLDivElement>(null)
 
   // Interval timing: null when stopped, ms delay when playing
   const delay = isPlaying ? (60 / bpm) * 1000 : null
@@ -358,6 +393,37 @@ export default function App() {
   const scale = isPlaying ? 1 + Math.sin(beat * Math.PI) * 0.12 : 1
   const glow = isPlaying ? 14 + Math.sin(beat * Math.PI) * 10 : 4
   const pct = ((bpm - MIN_BPM) / (MAX_BPM - MIN_BPM)) * 100
+
+  const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setBpmInput(e.target.value)
+    const n = parseInt(e.target.value, 10)
+    if (!Number.isNaN(n) && n >= MIN_BPM && n <= MAX_BPM) setBpm(n)
+  }
+
+  const handleInputBlur = () => {
+    const n = parseInt(bpmInput, 10)
+    if (Number.isNaN(n) || n < MIN_BPM) {
+      setBpm(MIN_BPM)
+      setBpmInput(String(MIN_BPM))
+    } else if (n > MAX_BPM) {
+      setBpm(MAX_BPM)
+      setBpmInput(String(MAX_BPM))
+    }
+  }
+
+  const handleSliderChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const v = +e.target.value
+    setBpm(v)
+    setBpmInput(String(v))
+  }
+
+  const handleOverlayClick = (_e: MouseEvent<HTMLDivElement>) => {
+    setShowInfo(false)
+  }
+
+  const handleOverlayKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') setShowInfo(false)
+  }
 
   return (
     <div
@@ -467,8 +533,8 @@ export default function App() {
         <div
           ref={overlayRef}
           className="overlay"
-          onClick={() => setShowInfo(false)}
-          onKeyDown={(e) => e.key === 'Escape' && setShowInfo(false)}
+          onClick={handleOverlayClick}
+          onKeyDown={handleOverlayKeyDown}
           role="dialog"
           aria-modal="true"
           aria-label="Statistics"
@@ -601,22 +667,8 @@ export default function App() {
                 inputMode="numeric"
                 name="bpm"
                 value={bpmInput}
-                onChange={(e) => {
-                  setBpmInput(e.target.value)
-                  const n = parseInt(e.target.value, 10)
-                  if (!Number.isNaN(n) && n >= MIN_BPM && n <= MAX_BPM)
-                    setBpm(n)
-                }}
-                onBlur={() => {
-                  const n = parseInt(bpmInput, 10)
-                  if (Number.isNaN(n) || n < MIN_BPM) {
-                    setBpm(MIN_BPM)
-                    setBpmInput(String(MIN_BPM))
-                  } else if (n > MAX_BPM) {
-                    setBpm(MAX_BPM)
-                    setBpmInput(String(MAX_BPM))
-                  }
-                }}
+                onChange={handleInputChange}
+                onBlur={handleInputBlur}
               />
               <span
                 style={{
@@ -671,11 +723,7 @@ export default function App() {
             min={MIN_BPM}
             max={MAX_BPM}
             value={bpm}
-            onChange={(e) => {
-              const v = +e.target.value
-              setBpm(v)
-              setBpmInput(String(v))
-            }}
+            onChange={handleSliderChange}
           />
           <div
             style={{
@@ -710,17 +758,17 @@ export default function App() {
             justifyContent: 'center',
           }}
         >
-          {BPM_PRESETS.map((preset) => (
+          {BPM_PRESETS.map((p) => (
             <button
               type="button"
-              key={preset.label}
-              className={`pr ${bpm === preset.bpm ? 'on' : ''}`}
+              key={p.label}
+              className={`pr ${bpm === p.bpm ? 'on' : ''}`}
               onClick={() => {
-                setBpm(preset.bpm)
-                setBpmInput(String(preset.bpm))
+                setBpm(p.bpm)
+                setBpmInput(String(p.bpm))
               }}
             >
-              {preset.label}
+              {p.label}
             </button>
           ))}
         </div>
