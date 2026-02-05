@@ -31,6 +31,11 @@ BPM range: 30-220, controlled via slider, direct input, or preset buttons (Sleep
 - TypeScript strict mode enabled
 - React JSX with inline styles (no external CSS files)
 - Biome a11y rules: `noSvgWithoutTitle`, `useButtonType` (auto-checked via hook)
+- `bunx biome lint <file>` - lint single file (avoids scanning skills directories with broken symlinks)
+
+## Patterns
+
+- Uses Dan Abramov's `useInterval` hook for dynamic timing without audio gaps
 
 ## Deployment
 
