@@ -29,3 +29,11 @@ BPM range: 30-220, controlled via slider, direct input, or preset buttons (Sleep
 - Pin dependency versions (no `^` or `latest` in package.json)
 - TypeScript strict mode enabled
 - React JSX with inline styles (no external CSS files)
+
+## Skills
+
+Use these skills for UI/frontend work:
+- `/frontend-design` - distinctive, production-grade interfaces
+- `vercel-react-best-practices` - React/Next.js optimization
+- `web-design-guidelines` - UI audit (trigger: "Review my UI")
+- `vercel-composition-patterns` - component architecture
