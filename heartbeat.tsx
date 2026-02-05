@@ -367,8 +367,8 @@ declare global {
 }
 
 export default function App() {
-  const [bpm, setBpm] = useState(72)
-  const [bpmInput, setBpmInput] = useState('72')
+  const [bpm, setBpm] = useState(162)
+  const [bpmInput, setBpmInput] = useState('162')
   const [isPlaying, setIsPlaying] = useState(false)
   const [beat, setBeat] = useState(0)
   const [showInfo, setShowInfo] = useState(false)
