@@ -15,7 +15,7 @@ bun run build        # Bundle for production (minified, tree-shaken, outputs to 
 
 ## Architecture
 
-Single-file React application (`heartbeat.jsx`) - a heartbeat audio visualizer with:
+Single-file React application (`heartbeat.tsx`) - a heartbeat audio visualizer with:
 
 - **Web Audio API synthesis** - `createHeartbeatSound()` generates realistic heartbeat using layered oscillators (S1/S2 heart sounds) plus filtered noise for the "thump" transient
 - **Canvas EKG visualization** - `EKG` component renders animated electrocardiogram waveform using `requestAnimationFrame`, speed scales with BPM
@@ -36,6 +36,12 @@ BPM range: 30-220, controlled via slider, direct input, or preset buttons (Sleep
 ## Patterns
 
 - Uses Dan Abramov's `useInterval` hook for dynamic timing without audio gaps
+
+## iOS Web Audio Gotchas
+
+- **Mute switch**: Web Audio uses "ringer" channel (silenced by hardware mute), HTML5 `<audio>` uses "media" channel (ignores mute). Fix: `navigator.audioSession.type = 'playback'` (iOS 17+)
+- **User gesture unlock**: `touchstart` does NOT unlock audio on iOS 17+ - must use `touchend`, `mousedown`, or `keydown`
+- **AudioContext warming**: Play silent buffer on first interaction to prime iOS audio system
 
 ## Deployment
 
