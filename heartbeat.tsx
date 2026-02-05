@@ -385,19 +385,32 @@ export default function App() {
     }
   }, delay)
 
-  const start = useCallback(async () => {
+  const start = useCallback(() => {
     if (!audioCtx.current)
       audioCtx.current = new (
         window.AudioContext || window.webkitAudioContext
       )()
-    // iOS requires awaiting resume() before audio can play
-    if (audioCtx.current.state === 'suspended') {
-      await audioCtx.current.resume()
+    const ctx = audioCtx.current
+
+    // iOS audio unlock: play silent buffer synchronously in user gesture
+    const silentBuffer = ctx.createBuffer(1, 1, ctx.sampleRate)
+    const silentSource = ctx.createBufferSource()
+    silentSource.buffer = silentBuffer
+    silentSource.connect(ctx.destination)
+    silentSource.start(0)
+
+    // Resume and play first beat
+    const playFirstBeat = () => {
+      createHeartbeatSound(ctx, ctx.currentTime)
+      setBeat((p) => p + 1)
+      setIsPlaying(true)
     }
-    // Play first beat immediately
-    createHeartbeatSound(audioCtx.current, audioCtx.current.currentTime)
-    setBeat((p) => p + 1)
-    setIsPlaying(true)
+
+    if (ctx.state === 'suspended') {
+      ctx.resume().then(playFirstBeat)
+    } else {
+      playFirstBeat()
+    }
   }, [])
 
   const stop = useCallback(() => {
