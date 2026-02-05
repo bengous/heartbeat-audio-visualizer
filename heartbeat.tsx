@@ -385,12 +385,15 @@ export default function App() {
     }
   }, delay)
 
-  const start = useCallback(() => {
+  const start = useCallback(async () => {
     if (!audioCtx.current)
       audioCtx.current = new (
         window.AudioContext || window.webkitAudioContext
       )()
-    if (audioCtx.current.state === 'suspended') audioCtx.current.resume()
+    // iOS requires awaiting resume() before audio can play
+    if (audioCtx.current.state === 'suspended') {
+      await audioCtx.current.resume()
+    }
     // Play first beat immediately
     createHeartbeatSound(audioCtx.current, audioCtx.current.currentTime)
     setBeat((p) => p + 1)
@@ -749,6 +752,7 @@ export default function App() {
             max={MAX_BPM}
             value={bpm}
             onChange={handleSliderChange}
+            onInput={handleSliderChange}
           />
           <div
             style={{
