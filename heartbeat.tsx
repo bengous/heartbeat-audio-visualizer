@@ -83,11 +83,11 @@ function useInterval(callback: () => void, delay: number | null): void {
   }, [delay])
 }
 
-function createHeartbeatSound(audioCtx: AudioContext, time: number): void {
-  const master = audioCtx.createGain()
-  master.gain.setValueAtTime(AUDIO.MASTER_GAIN, time)
-  master.connect(audioCtx.destination)
-
+function createHeartbeatSound(
+  audioCtx: AudioContext,
+  masterGain: GainNode,
+  time: number,
+): void {
   // S1 - primary "lub" sound
   const osc1 = audioCtx.createOscillator()
   const g1 = audioCtx.createGain()
@@ -101,9 +101,13 @@ function createHeartbeatSound(audioCtx: AudioContext, time: number): void {
   g1.gain.linearRampToValueAtTime(1, time + AUDIO.S1_ATTACK)
   g1.gain.exponentialRampToValueAtTime(0.001, time + AUDIO.S1_DECAY)
   osc1.connect(g1)
-  g1.connect(master)
+  g1.connect(masterGain)
   osc1.start(time)
   osc1.stop(time + AUDIO.S1_DURATION)
+  osc1.onended = () => {
+    osc1.disconnect()
+    g1.disconnect()
+  }
 
   // Sub-bass reinforcement
   const oSub = audioCtx.createOscillator()
@@ -114,9 +118,13 @@ function createHeartbeatSound(audioCtx: AudioContext, time: number): void {
   gSub.gain.linearRampToValueAtTime(AUDIO.SUB_GAIN, time + AUDIO.SUB_ATTACK)
   gSub.gain.exponentialRampToValueAtTime(0.001, time + AUDIO.SUB_DECAY)
   oSub.connect(gSub)
-  gSub.connect(master)
+  gSub.connect(masterGain)
   oSub.start(time)
   oSub.stop(time + AUDIO.SUB_DURATION)
+  oSub.onended = () => {
+    oSub.disconnect()
+    gSub.disconnect()
+  }
 
   // Noise transient for thump texture
   const n = audioCtx.createBufferSource()
@@ -129,9 +137,14 @@ function createHeartbeatSound(audioCtx: AudioContext, time: number): void {
   ng.gain.exponentialRampToValueAtTime(0.001, time + AUDIO.NOISE_DECAY)
   n.connect(nf)
   nf.connect(ng)
-  ng.connect(master)
+  ng.connect(masterGain)
   n.start(time)
   n.stop(time + AUDIO.NOISE_DECAY)
+  n.onended = () => {
+    n.disconnect()
+    nf.disconnect()
+    ng.disconnect()
+  }
 
   // S2 - secondary "dub" sound
   const o2 = audioCtx.createOscillator()
@@ -152,9 +165,13 @@ function createHeartbeatSound(audioCtx: AudioContext, time: number): void {
     time + AUDIO.S2_DELAY + AUDIO.S2_DECAY,
   )
   o2.connect(g2)
-  g2.connect(master)
+  g2.connect(masterGain)
   o2.start(time + AUDIO.S2_DELAY)
   o2.stop(time + AUDIO.S2_DELAY + AUDIO.S2_DURATION)
+  o2.onended = () => {
+    o2.disconnect()
+    g2.disconnect()
+  }
 }
 
 interface HeartSVGProps {
@@ -186,7 +203,10 @@ const HeartSVG = memo(function HeartSVG({
           key={beat}
           style={{
             position: 'absolute',
-            inset: -16,
+            top: -16,
+            right: -16,
+            bottom: -16,
+            left: -16,
             borderRadius: '50%',
             border: '1.5px solid rgba(190,50,50,0.3)',
             animation: 'ripple 0.9s ease-out forwards',
@@ -254,7 +274,11 @@ const EKG = memo(function EKG({ bpm, isPlaying }: EKGProps) {
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0]
       if (entry?.contentBoxSize) {
-        const size = entry.contentBoxSize[0]
+        // Handle both array (Chrome) and object (Firefox <92, Safari <15.4)
+        const contentBoxSize = entry.contentBoxSize
+        const size = Array.isArray(contentBoxSize)
+          ? contentBoxSize[0]
+          : contentBoxSize
         if (size) {
           setDimensions({ width: size.inlineSize, height: size.blockSize })
         }
@@ -294,7 +318,7 @@ const EKG = memo(function EKG({ bpm, isPlaying }: EKGProps) {
         ctx.lineTo(W, mid)
         ctx.stroke()
         ctx.setLineDash([])
-        anim.current = requestAnimationFrame(draw)
+        // Draw once and stop - no requestAnimationFrame when paused
         return
       }
       const bw = (60 / bpm) * 120
@@ -331,6 +355,8 @@ const EKG = memo(function EKG({ bpm, isPlaying }: EKGProps) {
   return (
     <canvas
       ref={ref}
+      role="img"
+      aria-label="EKG waveform visualization showing heartbeat rhythm"
       style={{ width: '100%', height: 56, borderRadius: 10, display: 'block' }}
     />
   )
@@ -364,6 +390,25 @@ declare global {
   interface Window {
     webkitAudioContext?: typeof AudioContext
   }
+}
+
+// Hook to detect reduced motion preference
+function usePrefersReducedMotion(): boolean {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
+    typeof window !== 'undefined'
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false,
+  )
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const handler = (e: MediaQueryListEvent) =>
+      setPrefersReducedMotion(e.matches)
+    mediaQuery.addEventListener('change', handler)
+    return () => mediaQuery.removeEventListener('change', handler)
+  }, [])
+
+  return prefersReducedMotion
 }
 
 // iOS Safari requires audio context to be "unlocked" via user gesture.
@@ -408,46 +453,71 @@ function setPlaybackAudioSession(): void {
   }
 }
 
+// WCAG 2.3.1: Max flashes per second threshold
+const MAX_VISUAL_FLASHES_PER_SEC = 3
+
 export default function App() {
   const [bpm, setBpm] = useState(162)
   const [bpmInput, setBpmInput] = useState('162')
   const [isPlaying, setIsPlaying] = useState(false)
   const [beat, setBeat] = useState(0)
   const [showInfo, setShowInfo] = useState(false)
+  const [volume, setVolume] = useState(0.7)
   const audioCtx = useRef<AudioContext | null>(null)
+  const masterGain = useRef<GainNode | null>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
+  const infoButtonRef = useRef<HTMLButtonElement>(null)
+  const prefersReducedMotion = usePrefersReducedMotion()
 
   // Interval timing: null when stopped, ms delay when playing
   const delay = isPlaying ? (60 / bpm) * 1000 : null
 
   useInterval(() => {
-    if (audioCtx.current) {
-      createHeartbeatSound(audioCtx.current, audioCtx.current.currentTime)
+    if (audioCtx.current && masterGain.current) {
+      createHeartbeatSound(
+        audioCtx.current,
+        masterGain.current,
+        audioCtx.current.currentTime,
+      )
       setBeat((p) => p + 1)
     }
   }, delay)
 
-  // Initialize AudioContext early and set up iOS unlock listeners
+  // Initialize AudioContext and master gain early, set up iOS unlock listeners
+  // biome-ignore lint/correctness/useExhaustiveDependencies: volume used only for initial value; separate effect handles updates
   useEffect(() => {
     // iOS 17+: route Web Audio to media channel (ignores mute switch)
     setPlaybackAudioSession()
 
     const ctx = new (window.AudioContext || window.webkitAudioContext)()
     audioCtx.current = ctx
+
+    // Create persistent master gain node for volume control
+    const gain = ctx.createGain()
+    gain.gain.setValueAtTime(volume, ctx.currentTime)
+    gain.connect(ctx.destination)
+    masterGain.current = gain
+
     unlockAudioContext(ctx)
     return () => {
       ctx.close()
+      // Clear noise buffer cache when context closes
+      cachedNoiseBuffer = null
     }
   }, [])
 
   const start = useCallback(async () => {
-    if (!audioCtx.current) return
+    if (!audioCtx.current || !masterGain.current) return
     // Ensure context is running before playing (iOS may have it suspended)
     if (audioCtx.current.state === 'suspended') {
       await audioCtx.current.resume()
     }
     // Play first beat immediately
-    createHeartbeatSound(audioCtx.current, audioCtx.current.currentTime)
+    createHeartbeatSound(
+      audioCtx.current,
+      masterGain.current,
+      audioCtx.current.currentTime,
+    )
     setBeat((p) => p + 1)
     setIsPlaying(true)
   }, [])
@@ -463,8 +533,24 @@ export default function App() {
   }, [showInfo])
 
   const zone = getBpmZone(bpm)
-  const scale = isPlaying ? 1 + Math.sin(beat * Math.PI) * 0.12 : 1
-  const glow = isPlaying ? 14 + Math.sin(beat * Math.PI) * 10 : 4
+
+  // WCAG 2.3.1: Cap visual animations at 3/sec to avoid epilepsy triggers
+  // At high BPM (>180), throttle visual beat updates while audio continues normally
+  const beatsPerSec = bpm / 60
+  const visualBeat =
+    beatsPerSec > MAX_VISUAL_FLASHES_PER_SEC
+      ? Math.floor(beat / Math.ceil(beatsPerSec / MAX_VISUAL_FLASHES_PER_SEC))
+      : beat
+
+  // Disable pulsing animations when user prefers reduced motion
+  const scale =
+    isPlaying && !prefersReducedMotion
+      ? 1 + Math.sin(visualBeat * Math.PI) * 0.12
+      : 1
+  const glow =
+    isPlaying && !prefersReducedMotion
+      ? 14 + Math.sin(visualBeat * Math.PI) * 10
+      : 4
   const pct = ((bpm - MIN_BPM) / (MAX_BPM - MIN_BPM)) * 100
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -496,12 +582,35 @@ export default function App() {
 
   const handleOverlayKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') setShowInfo(false)
+    // Focus trap: prevent Tab from leaving the dialog
+    if (e.key === 'Tab') {
+      e.preventDefault()
+    }
   }
+
+  // Return focus to info button when dialog closes
+  useEffect(() => {
+    if (!showInfo && infoButtonRef.current) {
+      infoButtonRef.current.focus()
+    }
+  }, [showInfo])
+
+  // Update master gain when volume changes
+  useEffect(() => {
+    if (masterGain.current && audioCtx.current) {
+      masterGain.current.gain.setTargetAtTime(
+        volume,
+        audioCtx.current.currentTime,
+        0.02,
+      )
+    }
+  }, [volume])
 
   return (
     <div
       style={{
-        height: '100vh',
+        height: '100dvh',
+        minHeight: '100vh',
         width: '100vw',
         background: '#0a0608',
         display: 'flex',
@@ -519,7 +628,7 @@ export default function App() {
         :root{--cr:#b82e3c;--cl:#e85d75;--tp:#e8dede;--tm:#6a5558;--td:#3d2e30;--sf:rgba(255,255,255,0.03);}
         *{box-sizing:border-box;margin:0;}html,body{overflow:hidden;height:100%;width:100%;}
         button,input[type=range]{touch-action:manipulation;-webkit-tap-highlight-color:transparent;}
-        .grain::before{content:'';position:fixed;inset:0;z-index:100;pointer-events:none;
+        .grain::before{content:'';position:fixed;top:0;right:0;bottom:0;left:0;z-index:100;pointer-events:none;
           background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
           background-repeat:repeat;background-size:256px;opacity:0.45;}
         @media (prefers-reduced-motion: no-preference) {
@@ -574,7 +683,7 @@ export default function App() {
         .info-btn:hover{border-color:rgba(255,255,255,0.15);color:var(--tm);}
         .info-btn:focus-visible{outline:2px solid var(--cl);outline-offset:2px;}
         .info-btn.open{background:rgba(184,46,60,0.1);border-color:rgba(184,46,60,0.2);color:var(--cl);}
-        .overlay{position:absolute;inset:0;background:rgba(6,4,6,0.92);z-index:50;
+        .overlay{position:absolute;top:0;right:0;bottom:0;left:0;background:rgba(6,4,6,0.92);z-index:50;
           display:flex;flex-direction:column;align-items:center;justify-content:center;
           gap:20px;padding:40px;backdrop-filter:blur(12px);animation:fadeIn 0.25s ease-out;}
         .stat{display:flex;flex-direction:column;align-items:center;gap:1px;}
@@ -583,7 +692,17 @@ export default function App() {
       `}</style>
 
       {/* BG */}
-      <div className="grain" style={{ position: 'fixed', inset: 0, zIndex: 0 }}>
+      <div
+        className="grain"
+        style={{
+          position: 'fixed',
+          top: 0,
+          right: 0,
+          bottom: 0,
+          left: 0,
+          zIndex: 0,
+        }}
+      >
         <div
           style={{
             position: 'absolute',
@@ -657,6 +776,21 @@ export default function App() {
               <span className="sl2">Frequency</span>
             </div>
           </div>
+          <p
+            style={{
+              fontSize: 8,
+              color: 'var(--td)',
+              fontFamily: "'IBM Plex Mono',monospace",
+              marginTop: 16,
+              maxWidth: 280,
+              textAlign: 'center',
+              lineHeight: 1.5,
+              opacity: 0.7,
+            }}
+          >
+            Educational simulation only. Not a medical device. Consult a
+            healthcare provider for cardiac concerns.
+          </p>
           <p
             style={{
               fontSize: 10,
@@ -865,6 +999,7 @@ export default function App() {
             {isPlaying ? '■  Stop' : '▶  Run'}
           </button>
           <button
+            ref={infoButtonRef}
             type="button"
             className={`info-btn ${showInfo ? 'open' : ''}`}
             onClick={() => setShowInfo(!showInfo)}
@@ -873,6 +1008,53 @@ export default function App() {
           >
             i
           </button>
+        </div>
+
+        {/* Volume control */}
+        <div
+          className="fi"
+          style={{
+            animationDelay: '0.5s',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            width: '60%',
+          }}
+        >
+          <span
+            style={{
+              fontSize: 8,
+              fontFamily: "'IBM Plex Mono',monospace",
+              color: 'var(--td)',
+              letterSpacing: 1,
+              textTransform: 'uppercase',
+            }}
+          >
+            Vol
+          </span>
+          <input
+            type="range"
+            className="sl"
+            aria-label="Volume"
+            name="volume"
+            min={0}
+            max={1}
+            step={0.01}
+            value={volume}
+            onChange={(e) => setVolume(+e.target.value)}
+            style={{ flex: 1 }}
+          />
+          <span
+            style={{
+              fontSize: 9,
+              fontFamily: "'IBM Plex Mono',monospace",
+              color: 'var(--td)',
+              width: 28,
+              textAlign: 'right',
+            }}
+          >
+            {Math.round(volume * 100)}%
+          </span>
         </div>
 
         {/* EKG — compact */}
