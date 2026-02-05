@@ -2,6 +2,7 @@ import {
   type ChangeEvent,
   type KeyboardEvent,
   type MouseEvent,
+  memo,
   useCallback,
   useEffect,
   useRef,
@@ -44,6 +45,27 @@ const AUDIO = {
 
   MASTER_GAIN: 0.7,
 } as const
+
+// Cached noise buffer to avoid allocation on every heartbeat
+let cachedNoiseBuffer: AudioBuffer | null = null
+let cachedSampleRate = 0
+
+function getNoiseBuffer(audioCtx: AudioContext): AudioBuffer {
+  if (!cachedNoiseBuffer || cachedSampleRate !== audioCtx.sampleRate) {
+    cachedSampleRate = audioCtx.sampleRate
+    const bufferSize = audioCtx.sampleRate * AUDIO.NOISE_DURATION
+    cachedNoiseBuffer = audioCtx.createBuffer(
+      1,
+      bufferSize,
+      audioCtx.sampleRate,
+    )
+    const data = cachedNoiseBuffer.getChannelData(0)
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * 0.3
+    }
+  }
+  return cachedNoiseBuffer
+}
 
 // Dan Abramov's useInterval pattern - allows dynamic interval timing without gaps
 function useInterval(callback: () => void, delay: number | null): void {
@@ -98,11 +120,7 @@ function createHeartbeatSound(audioCtx: AudioContext, time: number): void {
 
   // Noise transient for thump texture
   const n = audioCtx.createBufferSource()
-  const bs = audioCtx.sampleRate * AUDIO.NOISE_DURATION
-  const b = audioCtx.createBuffer(1, bs, audioCtx.sampleRate)
-  const d = b.getChannelData(0)
-  for (let i = 0; i < bs; i++) d[i] = (Math.random() * 2 - 1) * 0.3
-  n.buffer = b
+  n.buffer = getNoiseBuffer(audioCtx)
   const ng = audioCtx.createGain()
   const nf = audioCtx.createBiquadFilter()
   nf.type = 'lowpass'
@@ -146,7 +164,12 @@ interface HeartSVGProps {
   beat: number
 }
 
-function HeartSVG({ scale, glow, isPlaying, beat }: HeartSVGProps) {
+const HeartSVG = memo(function HeartSVG({
+  scale,
+  glow,
+  isPlaying,
+  beat,
+}: HeartSVGProps) {
   return (
     <div
       style={{
@@ -197,7 +220,7 @@ function HeartSVG({ scale, glow, isPlaying, beat }: HeartSVGProps) {
       </svg>
     </div>
   )
-}
+})
 
 function getEKGY(x: number, offset: number, bw: number, mid: number): number {
   const t = ((x + offset) % bw) / bw
@@ -217,7 +240,7 @@ interface EKGProps {
   isPlaying: boolean
 }
 
-function EKG({ bpm, isPlaying }: EKGProps) {
+const EKG = memo(function EKG({ bpm, isPlaying }: EKGProps) {
   const ref = useRef<HTMLCanvasElement>(null)
   const anim = useRef<number | null>(null)
   const off = useRef(0)
@@ -311,7 +334,7 @@ function EKG({ bpm, isPlaying }: EKGProps) {
       style={{ width: '100%', height: 56, borderRadius: 10, display: 'block' }}
     />
   )
-}
+})
 
 interface BpmZone {
   label: string
@@ -333,6 +356,8 @@ const BPM_PRESETS = [
   { label: 'Run', bpm: 155 },
   { label: 'Sprint', bpm: 190 },
 ] as const
+
+const SLIDER_TICKS = [30, 60, 100, 140, 170, 220] as const
 
 // Extend Window for Safari's prefixed AudioContext
 declare global {
@@ -733,7 +758,7 @@ export default function App() {
               padding: '0 1px',
             }}
           >
-            {[30, 60, 100, 140, 170, 220].map((v) => (
+            {SLIDER_TICKS.map((v) => (
               <span
                 key={v}
                 style={{
