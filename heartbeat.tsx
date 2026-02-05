@@ -552,6 +552,7 @@ export default function App() {
       ? 14 + Math.sin(visualBeat * Math.PI) * 10
       : 4
   const pct = ((bpm - MIN_BPM) / (MAX_BPM - MIN_BPM)) * 100
+  const volPct = volume * 100
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     setBpmInput(e.target.value)
@@ -652,6 +653,9 @@ export default function App() {
         input[type=range].sl::-moz-range-thumb{width:16px;height:16px;border-radius:50%;
           background:var(--tp);border:2px solid var(--cr);box-shadow:0 0 12px rgba(184,46,60,0.5);cursor:pointer;}
         input[type=range].sl:focus-visible{outline:2px solid var(--cr);outline-offset:4px;}
+        input[type=range].sl-vol::-webkit-slider-runnable-track{
+          background:linear-gradient(90deg,var(--cr) 0%,var(--cr) ${volPct}%,rgba(255,255,255,0.06) ${volPct}%);}
+        input[type=range].sl-vol::-moz-range-progress{background:var(--cr);}
         .inp{background:transparent;border:none;border-bottom:1.5px solid rgba(184,46,60,0.25);
           color:var(--tp);font-size:36px;font-family:'Cormorant Garamond',serif;font-weight:700;
           width:80px;text-align:center;padding:2px 4px;outline:none;letter-spacing:-1px;
@@ -1034,7 +1038,7 @@ export default function App() {
           </span>
           <input
             type="range"
-            className="sl"
+            className="sl sl-vol"
             aria-label="Volume"
             name="volume"
             min={0}
