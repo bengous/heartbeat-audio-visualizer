@@ -3,35 +3,94 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 const MIN_BPM = 30
 const MAX_BPM = 220
 
+// Audio synthesis constants (heart sound simulation)
+const AUDIO = {
+  // S1 (first heart sound - "lub")
+  S1_FREQ_START: 55, // Hz - low thump attack
+  S1_FREQ_END: 25, // Hz - frequency sweep target
+  S1_ATTACK: 0.008, // seconds - fast attack
+  S1_DECAY: 0.14, // seconds - decay time
+  S1_DURATION: 0.16, // seconds - total duration
+
+  // Sub-bass reinforcement
+  SUB_FREQ: 32, // Hz - sub-bass frequency
+  SUB_ATTACK: 0.012,
+  SUB_DECAY: 0.11,
+  SUB_DURATION: 0.13,
+  SUB_GAIN: 0.6,
+
+  // Noise transient (thump texture)
+  NOISE_DURATION: 0.02, // seconds
+  NOISE_DECAY: 0.03,
+  NOISE_CUTOFF: 150, // Hz - lowpass filter
+  NOISE_GAIN: 0.4,
+
+  // S2 (second heart sound - "dub")
+  S2_DELAY: 0.13, // seconds after S1
+  S2_FREQ_START: 75,
+  S2_FREQ_END: 35,
+  S2_ATTACK: 0.008,
+  S2_DECAY: 0.1,
+  S2_DURATION: 0.12,
+  S2_GAIN: 0.55,
+
+  MASTER_GAIN: 0.7,
+}
+
+// Dan Abramov's useInterval pattern - allows dynamic interval timing without gaps
+function useInterval(callback, delay) {
+  const savedCallback = useRef()
+
+  useEffect(() => {
+    savedCallback.current = callback
+  })
+
+  useEffect(() => {
+    if (delay === null) return
+    const tick = () => savedCallback.current()
+    const id = setInterval(tick, delay)
+    return () => clearInterval(id)
+  }, [delay])
+}
+
 function createHeartbeatSound(audioCtx, time) {
   const master = audioCtx.createGain()
-  master.gain.setValueAtTime(0.7, time)
+  master.gain.setValueAtTime(AUDIO.MASTER_GAIN, time)
   master.connect(audioCtx.destination)
+
+  // S1 - primary "lub" sound
   const osc1 = audioCtx.createOscillator()
   const g1 = audioCtx.createGain()
   osc1.type = 'sine'
-  osc1.frequency.setValueAtTime(55, time)
-  osc1.frequency.exponentialRampToValueAtTime(25, time + 0.14)
+  osc1.frequency.setValueAtTime(AUDIO.S1_FREQ_START, time)
+  osc1.frequency.exponentialRampToValueAtTime(
+    AUDIO.S1_FREQ_END,
+    time + AUDIO.S1_DECAY,
+  )
   g1.gain.setValueAtTime(0, time)
-  g1.gain.linearRampToValueAtTime(1, time + 0.008)
-  g1.gain.exponentialRampToValueAtTime(0.001, time + 0.14)
+  g1.gain.linearRampToValueAtTime(1, time + AUDIO.S1_ATTACK)
+  g1.gain.exponentialRampToValueAtTime(0.001, time + AUDIO.S1_DECAY)
   osc1.connect(g1)
   g1.connect(master)
   osc1.start(time)
-  osc1.stop(time + 0.16)
+  osc1.stop(time + AUDIO.S1_DURATION)
+
+  // Sub-bass reinforcement
   const oSub = audioCtx.createOscillator()
   const gSub = audioCtx.createGain()
   oSub.type = 'sine'
-  oSub.frequency.setValueAtTime(32, time)
+  oSub.frequency.setValueAtTime(AUDIO.SUB_FREQ, time)
   gSub.gain.setValueAtTime(0, time)
-  gSub.gain.linearRampToValueAtTime(0.6, time + 0.012)
-  gSub.gain.exponentialRampToValueAtTime(0.001, time + 0.11)
+  gSub.gain.linearRampToValueAtTime(AUDIO.SUB_GAIN, time + AUDIO.SUB_ATTACK)
+  gSub.gain.exponentialRampToValueAtTime(0.001, time + AUDIO.SUB_DECAY)
   oSub.connect(gSub)
   gSub.connect(master)
   oSub.start(time)
-  oSub.stop(time + 0.13)
+  oSub.stop(time + AUDIO.SUB_DURATION)
+
+  // Noise transient for thump texture
   const n = audioCtx.createBufferSource()
-  const bs = audioCtx.sampleRate * 0.02
+  const bs = audioCtx.sampleRate * AUDIO.NOISE_DURATION
   const b = audioCtx.createBuffer(1, bs, audioCtx.sampleRate)
   const d = b.getChannelData(0)
   for (let i = 0; i < bs; i++) d[i] = (Math.random() * 2 - 1) * 0.3
@@ -39,27 +98,37 @@ function createHeartbeatSound(audioCtx, time) {
   const ng = audioCtx.createGain()
   const nf = audioCtx.createBiquadFilter()
   nf.type = 'lowpass'
-  nf.frequency.value = 150
-  ng.gain.setValueAtTime(0.4, time)
-  ng.gain.exponentialRampToValueAtTime(0.001, time + 0.03)
+  nf.frequency.value = AUDIO.NOISE_CUTOFF
+  ng.gain.setValueAtTime(AUDIO.NOISE_GAIN, time)
+  ng.gain.exponentialRampToValueAtTime(0.001, time + AUDIO.NOISE_DECAY)
   n.connect(nf)
   nf.connect(ng)
   ng.connect(master)
   n.start(time)
-  n.stop(time + 0.03)
-  const dl = 0.13
+  n.stop(time + AUDIO.NOISE_DECAY)
+
+  // S2 - secondary "dub" sound
   const o2 = audioCtx.createOscillator()
   const g2 = audioCtx.createGain()
   o2.type = 'sine'
-  o2.frequency.setValueAtTime(75, time + dl)
-  o2.frequency.exponentialRampToValueAtTime(35, time + dl + 0.1)
-  g2.gain.setValueAtTime(0, time + dl)
-  g2.gain.linearRampToValueAtTime(0.55, time + dl + 0.008)
-  g2.gain.exponentialRampToValueAtTime(0.001, time + dl + 0.1)
+  o2.frequency.setValueAtTime(AUDIO.S2_FREQ_START, time + AUDIO.S2_DELAY)
+  o2.frequency.exponentialRampToValueAtTime(
+    AUDIO.S2_FREQ_END,
+    time + AUDIO.S2_DELAY + AUDIO.S2_DECAY,
+  )
+  g2.gain.setValueAtTime(0, time + AUDIO.S2_DELAY)
+  g2.gain.linearRampToValueAtTime(
+    AUDIO.S2_GAIN,
+    time + AUDIO.S2_DELAY + AUDIO.S2_ATTACK,
+  )
+  g2.gain.exponentialRampToValueAtTime(
+    0.001,
+    time + AUDIO.S2_DELAY + AUDIO.S2_DECAY,
+  )
   o2.connect(g2)
   g2.connect(master)
-  o2.start(time + dl)
-  o2.stop(time + dl + 0.12)
+  o2.start(time + AUDIO.S2_DELAY)
+  o2.stop(time + AUDIO.S2_DELAY + AUDIO.S2_DURATION)
 }
 
 function HeartSVG({ scale, glow, isPlaying, beat }) {
@@ -132,18 +201,41 @@ function EKG({ bpm, isPlaying }) {
   const ref = useRef(null)
   const anim = useRef(null)
   const off = useRef(0)
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
+
+  // Resize observer - watches container for size changes
+  useEffect(() => {
+    const canvas = ref.current
+    if (!canvas) return
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry.contentBoxSize) {
+        const { inlineSize, blockSize } = entry.contentBoxSize[0]
+        setDimensions({ width: inlineSize, height: blockSize })
+      }
+    })
+
+    observer.observe(canvas.parentElement)
+    return () => observer.disconnect()
+  }, [])
+
+  // Animation loop - separate effect reacts to dimension changes
   useEffect(() => {
     const c = ref.current
-    if (!c) return
+    if (!c || dimensions.width === 0) return
+
     const dpr = window.devicePixelRatio || 1
-    const r = c.getBoundingClientRect()
-    c.width = r.width * dpr
-    c.height = r.height * dpr
+    c.width = dimensions.width * dpr
+    c.height = dimensions.height * dpr
     const ctx = c.getContext('2d')
+    if (!ctx) return
+
     ctx.scale(dpr, dpr)
-    const W = r.width,
-      H = r.height,
-      mid = H / 2
+    const W = dimensions.width
+    const H = dimensions.height
+    const mid = H / 2
+
     const draw = () => {
       ctx.fillStyle = 'rgba(8,6,8,0.2)'
       ctx.fillRect(0, 0, W, H)
@@ -188,7 +280,8 @@ function EKG({ bpm, isPlaying }) {
     return () => {
       if (anim.current) cancelAnimationFrame(anim.current)
     }
-  }, [bpm, isPlaying])
+  }, [bpm, isPlaying, dimensions])
+
   return (
     <canvas
       ref={ref}
@@ -205,66 +298,52 @@ function getBpmZone(bpm) {
   return { label: 'Maximum', color: '#d94040' }
 }
 
-const P = [
-  { l: 'Sleep', b: 50 },
-  { l: 'Rest', b: 72 },
-  { l: 'Walk', b: 110 },
-  { l: 'Run', b: 155 },
-  { l: 'Sprint', b: 190 },
+const BPM_PRESETS = [
+  { label: 'Sleep', bpm: 50 },
+  { label: 'Rest', bpm: 72 },
+  { label: 'Walk', bpm: 110 },
+  { label: 'Run', bpm: 155 },
+  { label: 'Sprint', bpm: 190 },
 ]
 
 export default function App() {
   const [bpm, setBpm] = useState(72)
-  const [inp, setInp] = useState('72')
-  const [on, setOn] = useState(false)
+  const [bpmInput, setBpmInput] = useState('72')
+  const [isPlaying, setIsPlaying] = useState(false)
   const [beat, setBeat] = useState(0)
   const [showInfo, setShowInfo] = useState(false)
-  const ctx = useRef(null)
-  const iv = useRef(null)
+  const audioCtx = useRef(null)
   const overlayRef = useRef(null)
 
-  const start = useCallback(() => {
-    if (!ctx.current)
-      ctx.current = new (window.AudioContext || window.webkitAudioContext)()
-    if (ctx.current.state === 'suspended') ctx.current.resume()
-    if (iv.current) clearInterval(iv.current)
-    const ms = (60 / bpm) * 1000
-    const b = () => {
-      createHeartbeatSound(ctx.current, ctx.current.currentTime)
+  // Interval timing: null when stopped, ms delay when playing
+  const delay = isPlaying ? (60 / bpm) * 1000 : null
+
+  useInterval(() => {
+    if (audioCtx.current) {
+      createHeartbeatSound(audioCtx.current, audioCtx.current.currentTime)
       setBeat((p) => p + 1)
     }
-    b()
-    iv.current = setInterval(b, ms)
-    setOn(true)
-  }, [bpm])
+  }, delay)
 
-  const stop = useCallback(() => {
-    if (iv.current) {
-      clearInterval(iv.current)
-      iv.current = null
-    }
-    setOn(false)
+  const start = useCallback(() => {
+    if (!audioCtx.current)
+      audioCtx.current = new (
+        window.AudioContext || window.webkitAudioContext
+      )()
+    if (audioCtx.current.state === 'suspended') audioCtx.current.resume()
+    // Play first beat immediately
+    createHeartbeatSound(audioCtx.current, audioCtx.current.currentTime)
+    setBeat((p) => p + 1)
+    setIsPlaying(true)
   }, [])
 
-  useEffect(() => {
-    if (on) {
-      if (iv.current) clearInterval(iv.current)
-      iv.current = setInterval(
-        () => {
-          if (ctx.current) {
-            createHeartbeatSound(ctx.current, ctx.current.currentTime)
-            setBeat((p) => p + 1)
-          }
-        },
-        (60 / bpm) * 1000,
-      )
-    }
-  }, [bpm, on])
+  const stop = useCallback(() => {
+    setIsPlaying(false)
+  }, [])
 
   useEffect(
     () => () => {
-      if (iv.current) clearInterval(iv.current)
-      if (ctx.current) ctx.current.close()
+      if (audioCtx.current) audioCtx.current.close()
     },
     [],
   )
@@ -276,8 +355,8 @@ export default function App() {
   }, [showInfo])
 
   const zone = getBpmZone(bpm)
-  const scale = on ? 1 + Math.sin(beat * Math.PI) * 0.12 : 1
-  const glow = on ? 14 + Math.sin(beat * Math.PI) * 10 : 4
+  const scale = isPlaying ? 1 + Math.sin(beat * Math.PI) * 0.12 : 1
+  const glow = isPlaying ? 14 + Math.sin(beat * Math.PI) * 10 : 4
   const pct = ((bpm - MIN_BPM) / (MAX_BPM - MIN_BPM)) * 100
 
   return (
@@ -508,7 +587,12 @@ export default function App() {
             gap: 20,
           }}
         >
-          <HeartSVG scale={scale} glow={glow} isPlaying={on} beat={beat} />
+          <HeartSVG
+            scale={scale}
+            glow={glow}
+            isPlaying={isPlaying}
+            beat={beat}
+          />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
               <input
@@ -516,21 +600,21 @@ export default function App() {
                 aria-label="Beats per minute"
                 inputMode="numeric"
                 name="bpm"
-                value={inp}
+                value={bpmInput}
                 onChange={(e) => {
-                  setInp(e.target.value)
+                  setBpmInput(e.target.value)
                   const n = parseInt(e.target.value, 10)
                   if (!Number.isNaN(n) && n >= MIN_BPM && n <= MAX_BPM)
                     setBpm(n)
                 }}
                 onBlur={() => {
-                  const n = parseInt(inp, 10)
+                  const n = parseInt(bpmInput, 10)
                   if (Number.isNaN(n) || n < MIN_BPM) {
                     setBpm(MIN_BPM)
-                    setInp(String(MIN_BPM))
+                    setBpmInput(String(MIN_BPM))
                   } else if (n > MAX_BPM) {
                     setBpm(MAX_BPM)
-                    setInp(String(MAX_BPM))
+                    setBpmInput(String(MAX_BPM))
                   }
                 }}
               />
@@ -590,7 +674,7 @@ export default function App() {
             onChange={(e) => {
               const v = +e.target.value
               setBpm(v)
-              setInp(String(v))
+              setBpmInput(String(v))
             }}
           />
           <div
@@ -626,17 +710,17 @@ export default function App() {
             justifyContent: 'center',
           }}
         >
-          {P.map((p) => (
+          {BPM_PRESETS.map((preset) => (
             <button
               type="button"
-              key={p.l}
-              className={`pr ${bpm === p.b ? 'on' : ''}`}
+              key={preset.label}
+              className={`pr ${bpm === preset.bpm ? 'on' : ''}`}
               onClick={() => {
-                setBpm(p.b)
-                setInp(String(p.b))
+                setBpm(preset.bpm)
+                setBpmInput(String(preset.bpm))
               }}
             >
-              {p.l}
+              {preset.label}
             </button>
           ))}
         </div>
@@ -653,11 +737,11 @@ export default function App() {
         >
           <button
             type="button"
-            className={`btn ${on ? 'st' : 'go'}`}
-            onClick={on ? stop : start}
-            aria-label={on ? 'Stop heartbeat' : 'Start heartbeat'}
+            className={`btn ${isPlaying ? 'st' : 'go'}`}
+            onClick={isPlaying ? stop : start}
+            aria-label={isPlaying ? 'Stop heartbeat' : 'Start heartbeat'}
           >
-            {on ? '■  Stop' : '▶  Run'}
+            {isPlaying ? '■  Stop' : '▶  Run'}
           </button>
           <button
             type="button"
@@ -672,7 +756,7 @@ export default function App() {
 
         {/* EKG — compact */}
         <div className="fi" style={{ animationDelay: '0.55s', width: '100%' }}>
-          <EKG bpm={bpm} isPlaying={on} />
+          <EKG bpm={bpm} isPlaying={isPlaying} />
         </div>
       </div>
     </div>
