@@ -10,6 +10,7 @@ bun run dev          # Start dev server at http://localhost:3000
 bun run lint         # Lint with Biome
 bun run format       # Format with Biome
 bun run check        # Lint + format with auto-fix
+bun run build        # Bundle for production (outputs to dist/)
 ```
 
 ## Architecture
@@ -29,6 +30,16 @@ BPM range: 30-220, controlled via slider, direct input, or preset buttons (Sleep
 - Pin dependency versions (no `^` or `latest` in package.json)
 - TypeScript strict mode enabled
 - React JSX with inline styles (no external CSS files)
+- Biome a11y rules: `noSvgWithoutTitle`, `useButtonType` - run `bun run check` after UI changes
+
+## Deployment
+
+GitHub Pages at https://b3ngous.github.io/heartbeat-audio-visualizer/
+
+- CI workflow: `.github/workflows/deploy.yml` - auto-deploys on push to main
+- Build uses `--public-path '/heartbeat-audio-visualizer/'` for GitHub Pages subdirectory
+- Bun version in CI must match local (`bun --version`) for reproducible builds
+- Actions pinned to SHA commits for supply chain security
 
 ## Skills
 
