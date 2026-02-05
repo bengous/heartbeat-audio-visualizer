@@ -366,6 +366,37 @@ declare global {
   }
 }
 
+// iOS Safari requires audio context to be "unlocked" via user gesture.
+// Critical: touchstart does NOT work on iOS 17+ - only touchend/click/mousedown.
+// See: https://github.com/mackron/miniaudio/issues/759
+function unlockAudioContext(audioCtx: AudioContext): void {
+  if (audioCtx.state !== 'suspended') return
+
+  // Play a silent buffer to "warm up" the audio context
+  // This primes iOS to allow subsequent Web Audio playback
+  const warmUp = () => {
+    const buffer = audioCtx.createBuffer(1, 1, 22050)
+    const source = audioCtx.createBufferSource()
+    source.buffer = buffer
+    source.connect(audioCtx.destination)
+    source.start(0)
+    audioCtx.resume()
+  }
+
+  // iOS unlocks audio only when finger lifts (touchend), not on initial touch
+  const events = ['touchend', 'mousedown', 'keydown'] as const
+  const unlock = () => {
+    warmUp()
+    for (const e of events) {
+      document.body.removeEventListener(e, unlock)
+    }
+  }
+
+  for (const e of events) {
+    document.body.addEventListener(e, unlock, { passive: true })
+  }
+}
+
 export default function App() {
   const [bpm, setBpm] = useState(162)
   const [bpmInput, setBpmInput] = useState('162')
@@ -385,12 +416,22 @@ export default function App() {
     }
   }, delay)
 
-  const start = useCallback(() => {
-    if (!audioCtx.current)
-      audioCtx.current = new (
-        window.AudioContext || window.webkitAudioContext
-      )()
-    if (audioCtx.current.state === 'suspended') audioCtx.current.resume()
+  // Initialize AudioContext early and set up iOS unlock listeners
+  useEffect(() => {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    audioCtx.current = ctx
+    unlockAudioContext(ctx)
+    return () => {
+      ctx.close()
+    }
+  }, [])
+
+  const start = useCallback(async () => {
+    if (!audioCtx.current) return
+    // Ensure context is running before playing (iOS may have it suspended)
+    if (audioCtx.current.state === 'suspended') {
+      await audioCtx.current.resume()
+    }
     // Play first beat immediately
     createHeartbeatSound(audioCtx.current, audioCtx.current.currentTime)
     setBeat((p) => p + 1)
@@ -400,13 +441,6 @@ export default function App() {
   const stop = useCallback(() => {
     setIsPlaying(false)
   }, [])
-
-  useEffect(
-    () => () => {
-      if (audioCtx.current) audioCtx.current.close()
-    },
-    [],
-  )
 
   useEffect(() => {
     if (showInfo && overlayRef.current) {
