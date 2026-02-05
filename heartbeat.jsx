@@ -89,6 +89,8 @@ function HeartSVG({ scale, glow, isPlaying, beat }) {
       )}
       <svg
         viewBox="0 0 24 24"
+        role="img"
+        aria-label="Heart"
         style={{
           width: 64,
           height: 64,
@@ -219,6 +221,7 @@ export default function App() {
   const [showInfo, setShowInfo] = useState(false)
   const ctx = useRef(null)
   const iv = useRef(null)
+  const overlayRef = useRef(null)
 
   const start = useCallback(() => {
     if (!ctx.current)
@@ -266,6 +269,12 @@ export default function App() {
     [],
   )
 
+  useEffect(() => {
+    if (showInfo && overlayRef.current) {
+      overlayRef.current.focus()
+    }
+  }, [showInfo])
+
   const zone = getBpmZone(bpm)
   const scale = on ? 1 + Math.sin(beat * Math.PI) * 0.12 : 1
   const glow = on ? 14 + Math.sin(beat * Math.PI) * 10 : 4
@@ -288,15 +297,22 @@ export default function App() {
     >
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,700;1,700&family=IBM+Plex+Mono:wght@300;400;500&display=swap');
+        html{color-scheme:dark;}
         :root{--cr:#b82e3c;--cl:#e85d75;--tp:#e8dede;--tm:#6a5558;--td:#3d2e30;--sf:rgba(255,255,255,0.03);}
         *{box-sizing:border-box;margin:0;}html,body{overflow:hidden;height:100%;width:100%;}
+        button,input[type=range]{touch-action:manipulation;-webkit-tap-highlight-color:transparent;}
         .grain::before{content:'';position:fixed;inset:0;z-index:100;pointer-events:none;
           background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
           background-repeat:repeat;background-size:256px;opacity:0.45;}
-        @keyframes ripple{0%{transform:scale(0.85);opacity:0.3;}100%{transform:scale(1.8);opacity:0;}}
-        @keyframes breathe{0%,100%{transform:scale(1);}50%{transform:scale(1.06) translate(4px,-6px);}}
-        @keyframes fadeIn{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
-        .fi{opacity:0;animation:fadeIn 0.6s ease-out forwards;}
+        @media (prefers-reduced-motion: no-preference) {
+          @keyframes ripple{0%{transform:scale(0.85);opacity:0.3;}100%{transform:scale(1.8);opacity:0;}}
+          @keyframes breathe{0%,100%{transform:scale(1);}50%{transform:scale(1.06) translate(4px,-6px);}}
+          @keyframes fadeIn{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
+          .fi{opacity:0;animation:fadeIn 0.6s ease-out forwards;}
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .fi{opacity:1;}
+        }
         input[type=range].sl{-webkit-appearance:none;appearance:none;width:100%;height:3px;background:transparent;outline:none;cursor:pointer;}
         input[type=range].sl::-webkit-slider-runnable-track{height:3px;border-radius:2px;
           background:linear-gradient(90deg,var(--cr) 0%,var(--cr) ${pct}%,rgba(255,255,255,0.06) ${pct}%);}
@@ -308,16 +324,19 @@ export default function App() {
         input[type=range].sl::-webkit-slider-thumb:hover{transform:scale(1.3);}
         input[type=range].sl::-moz-range-thumb{width:16px;height:16px;border-radius:50%;
           background:var(--tp);border:2px solid var(--cr);box-shadow:0 0 12px rgba(184,46,60,0.5);cursor:pointer;}
+        input[type=range].sl:focus-visible{outline:2px solid var(--cr);outline-offset:4px;}
         .inp{background:transparent;border:none;border-bottom:1.5px solid rgba(184,46,60,0.25);
           color:var(--tp);font-size:36px;font-family:'Cormorant Garamond',serif;font-weight:700;
           width:80px;text-align:center;padding:2px 4px;outline:none;letter-spacing:-1px;
           transition:border-color 0.3s;}
         .inp:focus{border-color:var(--cr);}
+        .inp:focus-visible{outline:2px solid var(--cr);outline-offset:2px;}
         .btn{padding:12px 52px;font-size:11px;font-family:'IBM Plex Mono',monospace;font-weight:500;
           letter-spacing:3px;text-transform:uppercase;border:1.5px solid;border-radius:50px;
           cursor:pointer;transition:all 0.35s cubic-bezier(0.22,1,0.36,1);}
         .btn:hover{transform:translateY(-1px);}
         .btn:active{transform:scale(0.98);}
+        .btn:focus-visible{outline:2px solid var(--cl);outline-offset:2px;}
         .btn.go{background:linear-gradient(135deg,rgba(184,46,60,0.85),rgba(92,10,20,0.9));
           border-color:rgba(232,93,117,0.35);color:#fde8ec;box-shadow:0 4px 24px rgba(184,46,60,0.2);}
         .btn.go:hover{box-shadow:0 6px 32px rgba(184,46,60,0.35);}
@@ -328,18 +347,20 @@ export default function App() {
           border:1px solid rgba(255,255,255,0.04);border-radius:6px;cursor:pointer;
           transition:all 0.25s;}
         .pr:hover{background:rgba(255,255,255,0.05);color:var(--tp);}
+        .pr:focus-visible{outline:2px solid var(--cl);outline-offset:2px;}
         .pr.on{background:rgba(184,46,60,0.12);color:var(--cl);border-color:rgba(184,46,60,0.25);}
         .info-btn{background:none;border:1px solid rgba(255,255,255,0.06);border-radius:50%;
           width:28px;height:28px;color:var(--td);font-size:12px;cursor:pointer;
           font-family:'IBM Plex Mono',monospace;display:flex;align-items:center;justify-content:center;
           transition:all 0.25s;}
         .info-btn:hover{border-color:rgba(255,255,255,0.15);color:var(--tm);}
+        .info-btn:focus-visible{outline:2px solid var(--cl);outline-offset:2px;}
         .info-btn.open{background:rgba(184,46,60,0.1);border-color:rgba(184,46,60,0.2);color:var(--cl);}
         .overlay{position:absolute;inset:0;background:rgba(6,4,6,0.92);z-index:50;
           display:flex;flex-direction:column;align-items:center;justify-content:center;
           gap:20px;padding:40px;backdrop-filter:blur(12px);animation:fadeIn 0.25s ease-out;}
         .stat{display:flex;flex-direction:column;align-items:center;gap:1px;}
-        .sv{font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:700;color:var(--tp);}
+        .sv{font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:700;color:var(--tp);font-variant-numeric:tabular-nums;}
         .sl2{font-size:8px;font-family:'IBM Plex Mono',monospace;color:var(--td);letter-spacing:1.5px;text-transform:uppercase;}
       `}</style>
 
@@ -364,7 +385,16 @@ export default function App() {
 
       {/* Stats overlay */}
       {showInfo && (
-        <div className="overlay" onClick={() => setShowInfo(false)}>
+        <div
+          ref={overlayRef}
+          className="overlay"
+          onClick={() => setShowInfo(false)}
+          onKeyDown={(e) => e.key === 'Escape' && setShowInfo(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Statistics"
+          tabIndex={-1}
+        >
           <p
             style={{
               fontSize: 9,
@@ -483,15 +513,19 @@ export default function App() {
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
               <input
                 className="inp"
+                aria-label="Beats per minute"
+                inputMode="numeric"
+                name="bpm"
                 value={inp}
                 onChange={(e) => {
                   setInp(e.target.value)
                   const n = parseInt(e.target.value, 10)
-                  if (!isNaN(n) && n >= MIN_BPM && n <= MAX_BPM) setBpm(n)
+                  if (!Number.isNaN(n) && n >= MIN_BPM && n <= MAX_BPM)
+                    setBpm(n)
                 }}
                 onBlur={() => {
                   const n = parseInt(inp, 10)
-                  if (isNaN(n) || n < MIN_BPM) {
+                  if (Number.isNaN(n) || n < MIN_BPM) {
                     setBpm(MIN_BPM)
                     setInp(String(MIN_BPM))
                   } else if (n > MAX_BPM) {
@@ -548,6 +582,8 @@ export default function App() {
           <input
             type="range"
             className="sl"
+            aria-label="BPM slider"
+            name="bpm-slider"
             min={MIN_BPM}
             max={MAX_BPM}
             value={bpm}
@@ -592,6 +628,7 @@ export default function App() {
         >
           {P.map((p) => (
             <button
+              type="button"
               key={p.l}
               className={`pr ${bpm === p.b ? 'on' : ''}`}
               onClick={() => {
@@ -615,14 +652,19 @@ export default function App() {
           }}
         >
           <button
+            type="button"
             className={`btn ${on ? 'st' : 'go'}`}
             onClick={on ? stop : start}
+            aria-label={on ? 'Stop heartbeat' : 'Start heartbeat'}
           >
             {on ? '■  Stop' : '▶  Run'}
           </button>
           <button
+            type="button"
             className={`info-btn ${showInfo ? 'open' : ''}`}
             onClick={() => setShowInfo(!showInfo)}
+            aria-label={showInfo ? 'Close statistics' : 'Show statistics'}
+            aria-expanded={showInfo}
           >
             i
           </button>
