@@ -397,6 +397,17 @@ function unlockAudioContext(audioCtx: AudioContext): void {
   }
 }
 
+// iOS 17+: Set audio session to "playback" so Web Audio ignores the mute switch.
+// Without this, Web Audio plays on the "ringer" channel and is silenced by the
+// hardware mute toggle, while HTML5 <audio> plays on "media" channel unaffected.
+// See: https://bugs.webkit.org/show_bug.cgi?id=237322
+function setPlaybackAudioSession(): void {
+  if ('audioSession' in navigator) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(navigator as any).audioSession.type = 'playback'
+  }
+}
+
 export default function App() {
   const [bpm, setBpm] = useState(162)
   const [bpmInput, setBpmInput] = useState('162')
@@ -418,6 +429,9 @@ export default function App() {
 
   // Initialize AudioContext early and set up iOS unlock listeners
   useEffect(() => {
+    // iOS 17+: route Web Audio to media channel (ignores mute switch)
+    setPlaybackAudioSession()
+
     const ctx = new (window.AudioContext || window.webkitAudioContext)()
     audioCtx.current = ctx
     unlockAudioContext(ctx)
